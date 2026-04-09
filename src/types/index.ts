@@ -41,3 +41,9 @@ export interface Badge {
   earned: boolean;
   earnedDate?: string;
 }
+
+export interface OnboardingProfile {
+  classGroup: string;
+  goal: string;
+  completedAt: string;
+}

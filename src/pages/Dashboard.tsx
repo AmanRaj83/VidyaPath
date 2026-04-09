@@ -7,8 +7,11 @@ import { courses, getStoredProgress, getStoredBadges, getXP, getStreak } from "@
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import type { UserProgress, Badge } from "@/types";
+import { useAuth } from "@/contexts/AuthContext";
+import { classSubjects, getOnboardingProfile } from "@/data/onboarding";
 
 const Dashboard = () => {
+  const { user } = useAuth();
   const [progress, setProgress] = useState<UserProgress[]>([]);
   const [badges, setBadges] = useState<Badge[]>([]);
   const [xp, setXP] = useState(0);
@@ -27,6 +30,11 @@ const Dashboard = () => {
   const level = Math.floor(xp / 100) + 1;
   const xpToNext = 100 - (xp % 100);
   const earnedBadges = badges.filter((b) => b.earned);
+  const onboarding = user ? getOnboardingProfile(user.uid) : null;
+  const recommendedSubjects = onboarding ? classSubjects[onboarding.classGroup] ?? [] : [];
+  const recommendedCourses = recommendedSubjects.length > 0
+    ? courses.filter((course) => recommendedSubjects.includes(course.subject)).slice(0, 3)
+    : courses.slice(0, 3);
 
   const statCards = [
     { icon: Star, label: "Total XP", value: xp.toString(), color: "text-primary" },
@@ -41,10 +49,43 @@ const Dashboard = () => {
       <div className="container mx-auto px-4 py-10">
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="font-display text-3xl font-extrabold text-foreground md:text-4xl">
-            Your Dashboard
+            {user?.displayName ? `Welcome, ${user.displayName}` : "Your Dashboard"}
           </h1>
-          <p className="mt-2 text-muted-foreground">Track your learning journey and achievements.</p>
+          <p className="mt-2 text-muted-foreground">
+            {onboarding
+              ? `Class ${onboarding.classGroup} • Goal: ${onboarding.goal.replace(/-/g, " ")}`
+              : "Track your learning journey and achievements."}
+          </p>
         </motion.div>
+
+        {onboarding && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="mt-6 rounded-xl border bg-card p-5 shadow-card"
+          >
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <h2 className="font-display text-lg font-bold text-foreground">Your study path</h2>
+                <p className="text-sm text-muted-foreground">
+                  We selected courses based on your class and goal.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-sm font-semibold">
+                <span className="rounded-full bg-primary/10 px-3 py-1 text-primary">Class {onboarding.classGroup}</span>
+                <span className="rounded-full bg-secondary/10 px-3 py-1 text-secondary">{onboarding.goal.replace(/-/g, " ")}</span>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {recommendedSubjects.map((subject) => (
+                <span key={subject} className="rounded-full bg-muted px-3 py-1 text-sm text-foreground">
+                  {subject}
+                </span>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
         {/* Stats Grid */}
         <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -89,9 +130,11 @@ const Dashboard = () => {
           transition={{ delay: 0.5 }}
           className="mt-8"
         >
-          <h2 className="font-display text-xl font-bold text-foreground">Course Progress</h2>
+          <h2 className="font-display text-xl font-bold text-foreground">
+            {onboarding ? "Recommended for you" : "Course Progress"}
+          </h2>
           <div className="mt-4 space-y-4">
-            {courses.map((course) => {
+            {(onboarding ? recommendedCourses : courses).map((course) => {
               const cp = progress.find((p) => p.courseId === course.id);
               const done = cp ? cp.completedLessons.length : 0;
               const pct = (done / course.lessons.length) * 100;
