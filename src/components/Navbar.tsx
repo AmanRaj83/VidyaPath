@@ -1,7 +1,8 @@
-import { Link, useLocation } from "react-router-dom";
-import { BookOpen, LayoutDashboard, Menu, X, Volume2, VolumeX } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { BookOpen, LayoutDashboard, Menu, X, Volume2, VolumeX, LogIn, LogOut } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Navbar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
