@@ -1,8 +1,9 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { BookOpen, LayoutDashboard, Menu, X, Volume2, VolumeX, LogIn, LogOut } from "lucide-react";
+import { BookOpen, LayoutDashboard, Menu, X, Volume2, VolumeX, LogIn, LogOut, WifiOff } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOffline } from "@/hooks/useOffline";
 
 const Navbar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -10,6 +11,7 @@ const Navbar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
+  const { isOffline } = useOffline();
 
   const links = [
     { to: "/", label: "Home", icon: BookOpen },
@@ -57,6 +59,12 @@ const Navbar = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Offline indicator */}
+          {isOffline && (
+            <span className="hidden items-center gap-1 rounded-full bg-amber-500 px-2.5 py-1 text-xs font-bold text-white md:inline-flex">
+              <WifiOff className="h-3 w-3" /> Offline
+            </span>
+          )}
           <Button
             variant="ghost"
             size="icon"
