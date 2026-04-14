@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { 
   CheckCircle, 
   Star, 
@@ -13,7 +15,8 @@ import {
   Clock,
   FileText,
   Download,
-  ExternalLink
+  ExternalLink,
+  LogOut
 } from 'lucide-react';
 
 // --- Types ---
@@ -93,6 +96,13 @@ const Badge: React.FC<{ children: React.ReactNode; color?: string }> = ({ childr
 
 const TeacherProfile: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'videos' | 'notes'>('videos');
+  const navigate = useNavigate();
+  const { signOut } = useAuth();
+
+  const handleTeacherLogout = async () => {
+    await signOut();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-12">
@@ -111,6 +121,20 @@ const TeacherProfile: React.FC = () => {
           </div>
           
           <div className="flex-1 text-center md:text-left">
+            <div className="flex flex-wrap justify-center md:justify-end gap-2 mb-3">
+              <button
+                onClick={() => navigate('/teacher/dashboard')}
+                className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-100"
+              >
+                Back to Dashboard
+              </button>
+              <button
+                onClick={handleTeacherLogout}
+                className="px-3 py-1.5 text-sm border border-red-200 rounded-lg text-red-600 hover:bg-red-50 flex items-center gap-1"
+              >
+                <LogOut className="w-4 h-4" /> Logout
+              </button>
+            </div>
             <div className="flex flex-col md:flex-row md:items-center gap-2 mb-2">
               <h1 className="text-3xl font-bold text-slate-900">{TEACHER_DATA.name}</h1>
               <div className="flex items-center justify-center gap-1 text-amber-500 font-semibold">

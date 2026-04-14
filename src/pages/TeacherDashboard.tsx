@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { FileText, File, Image as ImageIcon } from 'lucide-react';
 type UploadType = 'video' | 'notes';
 type NotesType = 'image' | 'pdf';
@@ -11,6 +13,7 @@ import {
   IndianRupee, 
   Bell, 
   User, 
+  LogOut,
   Plus, 
   Search,
   ChevronRight,
@@ -283,6 +286,8 @@ const EarningsPage = () => (
 
 export default function VidyaPathDashboard() {
   const [activeSection, setActiveSection] = useState<Section>('Dashboard');
+  const navigate = useNavigate();
+  const { signOut } = useAuth();
 
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard },
@@ -292,6 +297,11 @@ export default function VidyaPathDashboard() {
     { name: 'Upload Material', icon: Upload },
     { name: 'Earnings', icon: IndianRupee },
   ];
+
+  const handleTeacherLogout = async () => {
+    await signOut();
+    navigate('/login', { replace: true });
+  };
 
   const renderContent = () => {
     switch (activeSection) {
@@ -336,6 +346,14 @@ export default function VidyaPathDashboard() {
               <span className="font-medium text-sm">{item.name}</span>
             </button>
           ))}
+
+          <button
+            onClick={() => navigate('/teacher/profile')}
+            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+          >
+            <User size={20} />
+            <span className="font-medium text-sm">Teacher Profile</span>
+          </button>
         </nav>
 
         <div className="p-4 border-t border-gray-50">
@@ -365,6 +383,20 @@ export default function VidyaPathDashboard() {
             <button className="p-2 text-gray-400 hover:bg-gray-50 rounded-full relative">
               <Bell size={20} />
               <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+            </button>
+            <button
+              onClick={() => navigate('/teacher/profile')}
+              className="hidden sm:flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              <User size={16} />
+              Profile
+            </button>
+            <button
+              onClick={handleTeacherLogout}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+            >
+              <LogOut size={16} />
+              Logout
             </button>
             <div className="flex items-center space-x-3 pl-4 border-l border-gray-100">
               <div className="text-right hidden sm:block">

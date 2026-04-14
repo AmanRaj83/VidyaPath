@@ -32,7 +32,7 @@ const LoginRoute = () => {
 
   if (user) {
     if (role === "teacher") {
-      return <Navigate to="/Teacherdashboard" replace />;
+      return <Navigate to="/teacher/dashboard" replace />;
     }
     return <Navigate to={hasCompletedOnboarding(user.uid) ? "/" : "/onboarding"} replace />;
   }
@@ -55,8 +55,10 @@ const App = () => (
             <Route path="/courses/:courseId" element={<ProtectedRoute><CourseDetail /></ProtectedRoute>} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="*" element={<ProtectedRoute><NotFound /></ProtectedRoute>} />
-            <Route path="/Teacherprofile" element={<ProtectedRoute><TeacherProfile /></ProtectedRoute>} />
-            <Route path="/Teacherdashboard" element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />            
+            <Route path="/teacher/profile" element={<ProtectedRoute><TeacherProfile /></ProtectedRoute>} />
+            <Route path="/teacher/dashboard" element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />
+            <Route path="/Teacherprofile" element={<Navigate to="/teacher/profile" replace />} />
+            <Route path="/Teacherdashboard" element={<Navigate to="/teacher/dashboard" replace />} />
           </Routes>
         </AuthProvider>
       </BrowserRouter>
