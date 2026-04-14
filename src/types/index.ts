@@ -8,6 +8,7 @@ export interface Course {
   totalDuration: string;
   thumbnail: string;
   isFree: boolean;
+  classes?: number[]; // Which class numbers (1–12) this course is for
 }
 
 export interface Lesson {

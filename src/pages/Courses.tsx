@@ -4,17 +4,9 @@ import { motion } from "framer-motion";
 import { Clock, BookOpen, Search, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { courses } from "@/data/courses";
+import { courses, subjectColors } from "@/data/courses";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-
-const subjectColors: Record<string, string> = {
-  Mathematics: "bg-primary/10 text-primary",
-  Science: "bg-secondary/10 text-secondary",
-  English: "bg-accent/20 text-accent-foreground",
-  Hindi: "bg-destructive/10 text-destructive",
-  "Computer Science": "bg-success/10 text-success",
-};
 
 const Courses = () => {
   const [search, setSearch] = useState("");
