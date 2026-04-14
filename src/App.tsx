@@ -20,7 +20,7 @@ import TeacherProfile from "./pages/TeacherProfile.tsx";
 const queryClient = new QueryClient();
 
 const LoginRoute = () => {
-  const { user, loading } = useAuth();
+  const { user, role, loading } = useAuth();
 
   if (loading) {
     return (
@@ -31,6 +31,9 @@ const LoginRoute = () => {
   }
 
   if (user) {
+    if (role === "teacher") {
+      return <Navigate to="/Teacherdashboard" replace />;
+    }
     return <Navigate to={hasCompletedOnboarding(user.uid) ? "/" : "/onboarding"} replace />;
   }
 
