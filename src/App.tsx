@@ -14,6 +14,8 @@ import Dashboard from "./pages/Dashboard.tsx";
 import Onboarding from "./pages/Onboarding.tsx";
 import Login from "./pages/Login.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import TeacherDashboard from "./pages/TeacherDashboard.tsx";
+import TeacherProfile from "./pages/TeacherProfile.tsx";
 
 const queryClient = new QueryClient();
 
@@ -50,6 +52,8 @@ const App = () => (
             <Route path="/courses/:courseId" element={<ProtectedRoute><CourseDetail /></ProtectedRoute>} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="*" element={<ProtectedRoute><NotFound /></ProtectedRoute>} />
+            <Route path="/Teacherprofile" element={<ProtectedRoute><TeacherProfile /></ProtectedRoute>} />
+            <Route path="/Teacherdashboard" element={<ProtectedRoute><TeacherDashboard /></ProtectedRoute>} />            
           </Routes>
         </AuthProvider>
       </BrowserRouter>
