@@ -147,6 +147,7 @@ const UploadCourseForm = ({
   const [lessonContent, setLessonContent] = useState('');
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState('');
   const [uploadPct, setUploadPct] = useState(0);
@@ -173,6 +174,7 @@ const UploadCourseForm = ({
         isFree,
         thumbnailFile,
         videoFile,
+        pdfFile,
         lessonTitle,
         lessonContent,
         onProgress: (stage, pct) => {
@@ -288,6 +290,16 @@ const UploadCourseForm = ({
                 onFile={setVideoFile}
               />
             </div>
+            {/* PDF row */}
+            <DropZone
+              id="pdf-drop"
+              accept="application/pdf,.pdf"
+              label="Upload PDF Notes (optional)"
+              hint="PDF only — lecture notes, worksheets, summaries"
+              icon={FileText}
+              file={pdfFile}
+              onFile={setPdfFile}
+            />
           </div>
 
           {/* Lesson */}

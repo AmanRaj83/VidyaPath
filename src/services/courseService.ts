@@ -93,13 +93,16 @@ function toLesson(id: string, data: DocumentData): Lesson {
 
 /**
  * Uploads a file to Cloudinary using an unsigned preset.
- * Uses XMLHttpRequest so we get real upload progress %.
- * The `_path` param is kept for API compatibility but unused.
+ * resourceType:
+ *   "image" → thumbnails
+ *   "video" → video files
+ *   "raw"   → PDFs and other documents
  */
 export function uploadFile(
   file: File,
   _path: string,
   onProgress?: (pct: number) => void,
+  resourceType: "image" | "video" | "raw" | "auto" = "auto",
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
@@ -109,7 +112,7 @@ export function uploadFile(
     const xhr = new XMLHttpRequest();
     xhr.open(
       "POST",
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/auto/upload`,
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/${resourceType}/upload`,
     );
 
     // Track upload progress
@@ -168,18 +171,22 @@ export async function fetchAllCourses(): Promise<CourseWithLessons[]> {
 export async function fetchTeacherCourses(
   teacherUid: string,
 ): Promise<CourseWithLessons[]> {
+  // Only use `where` — avoid composite index requirement from where+orderBy combo
   const coursesSnap = await getDocs(
     query(
       collection(db, "courses"),
       where("teacher_uid", "==", teacherUid),
-      orderBy("created_at", "desc"),
     )
   );
-  const courses = coursesSnap.docs.map((d) => toCourse(d.id, d.data()));
+
+  // Sort newest-first client-side
+  const courses = coursesSnap.docs
+    .map((d) => toCourse(d.id, d.data()))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   if (courses.length === 0) return [];
 
-  // Fetch lessons for each of this teacher's courses
+  // Fetch lessons for all teacher's courses in one query
   const lessonsSnap = await getDocs(
     query(collection(db, "lessons"), where("course_id", "in", courses.map((c) => c.id)))
   );
@@ -271,6 +278,7 @@ export interface UploadCoursePayload {
   isFree: boolean;
   thumbnailFile: File | null;
   videoFile: File | null;
+  pdfFile: File | null;
   lessonTitle: string;
   lessonContent: string;
   onProgress?: (stage: string, pct: number) => void;
@@ -281,17 +289,18 @@ export async function uploadCourseWithLesson(
 ): Promise<CourseWithLessons> {
   const {
     teacherUid, title, description, subject, classLevel, level,
-    isFree, thumbnailFile, videoFile, lessonTitle, lessonContent, onProgress,
+    isFree, thumbnailFile, videoFile, pdfFile, lessonTitle, lessonContent, onProgress,
   } = payload;
 
-  // 1. Upload thumbnail to Cloudinary
+  // 1. Upload thumbnail → Cloudinary image
   let thumbnailUrl: string | null = null;
   if (thumbnailFile) {
     onProgress?.("Uploading thumbnail…", 0);
     thumbnailUrl = await uploadFile(
       thumbnailFile,
-      "", // unused — Cloudinary handles paths internally
+      "",
       (pct) => onProgress?.("Uploading thumbnail…", pct),
+      "image",
     );
   }
 
@@ -309,25 +318,41 @@ export async function uploadCourseWithLesson(
     total_duration: "—",
   });
 
-  // 3. Upload video to Cloudinary
+  // 3. Upload video → Cloudinary video
   let videoUrl: string | null = null;
   if (videoFile) {
     onProgress?.("Uploading video…", 0);
     videoUrl = await uploadFile(
       videoFile,
-      "", // unused — Cloudinary handles paths internally
+      "",
       (pct) => onProgress?.("Uploading video…", pct),
+      "video",
     );
   }
 
-  // 4. Create lesson document in Firestore
+  // 4. Upload PDF → Cloudinary (auto-detect, handles PDF correctly)
+  let pdfUrl: string | null = null;
+  if (pdfFile) {
+    onProgress?.("Uploading PDF…", 0);
+    pdfUrl = await uploadFile(
+      pdfFile,
+      "",
+      (pct) => onProgress?.("Uploading PDF…", pct),
+      "auto",
+    );
+  }
+
+  // 5. Determine lesson type
+  const lessonType = videoUrl ? "video" : pdfUrl ? "reading" : "reading";
+
+  // 6. Create lesson document in Firestore
   onProgress?.("Saving lesson…", 100);
   const lesson = await createLesson({
     course_id: course.id,
     title:     lessonTitle,
-    type:      videoUrl ? "video" : "reading",
+    type:      lessonType,
     video_url: videoUrl,
-    pdf_url:   null,
+    pdf_url:   pdfUrl,
     content:   lessonContent,
     duration:  "—",
     order:     1,
@@ -335,3 +360,4 @@ export async function uploadCourseWithLesson(
 
   return { ...course, lessons: [lesson] };
 }
+
