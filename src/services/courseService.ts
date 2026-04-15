@@ -1,0 +1,337 @@
+/**
+ * courseService.ts
+ * Files (videos/images) → Cloudinary (free, no billing needed)
+ * Course metadata        → Firebase Firestore
+ */
+import {
+  collection, doc, addDoc, getDoc, getDocs,
+  query, where, orderBy, deleteDoc, Timestamp, serverTimestamp,
+  type DocumentData,
+} from "firebase/firestore";
+import { db } from "@/integrations/firebase/client";
+
+const CLOUDINARY_CLOUD   = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME  as string;
+const CLOUDINARY_PRESET  = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
+
+// ─────────────────────────────────────────────
+//  Shared Types  (same shape as before)
+// ─────────────────────────────────────────────
+
+export interface Course {
+  id: string;
+  teacher_uid: string;
+  title: string;
+  description: string;
+  subject: string;
+  class_level: number;
+  thumbnail_url: string | null;
+  is_free: boolean;
+  level: string;
+  total_duration: string;
+  created_at: string;
+}
+
+export interface Lesson {
+  id: string;
+  course_id: string;
+  title: string;
+  type: "video" | "reading" | "quiz";
+  video_url: string | null;
+  pdf_url: string | null;
+  content: string | null;
+  duration: string;
+  order: number;
+  created_at: string;
+}
+
+export type CourseWithLessons = Course & { lessons: Lesson[] };
+
+// ─────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────
+
+/** Convert a Firestore doc snapshot to a typed Course */
+function toCourse(id: string, data: DocumentData): Course {
+  return {
+    id,
+    teacher_uid:   data.teacher_uid   ?? "",
+    title:         data.title         ?? "",
+    description:   data.description   ?? "",
+    subject:       data.subject       ?? "",
+    class_level:   data.class_level   ?? 6,
+    thumbnail_url: data.thumbnail_url ?? null,
+    is_free:       data.is_free       ?? true,
+    level:         data.level         ?? "Beginner",
+    total_duration: data.total_duration ?? "—",
+    created_at:    data.created_at instanceof Timestamp
+      ? data.created_at.toDate().toISOString()
+      : data.created_at ?? new Date().toISOString(),
+  };
+}
+
+/** Convert a Firestore doc snapshot to a typed Lesson */
+function toLesson(id: string, data: DocumentData): Lesson {
+  return {
+    id,
+    course_id:  data.course_id  ?? "",
+    title:      data.title      ?? "",
+    type:       data.type       ?? "video",
+    video_url:  data.video_url  ?? null,
+    pdf_url:    data.pdf_url    ?? null,
+    content:    data.content    ?? null,
+    duration:   data.duration   ?? "—",
+    order:      data.order      ?? 1,
+    created_at: data.created_at instanceof Timestamp
+      ? data.created_at.toDate().toISOString()
+      : data.created_at ?? new Date().toISOString(),
+  };
+}
+
+// ─────────────────────────────────────────────
+//  Cloudinary Upload (with XHR progress)
+// ─────────────────────────────────────────────
+
+/**
+ * Uploads a file to Cloudinary using an unsigned preset.
+ * Uses XMLHttpRequest so we get real upload progress %.
+ * The `_path` param is kept for API compatibility but unused.
+ */
+export function uploadFile(
+  file: File,
+  _path: string,
+  onProgress?: (pct: number) => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", CLOUDINARY_PRESET);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open(
+      "POST",
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/auto/upload`,
+    );
+
+    // Track upload progress
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        onProgress?.(pct);
+      }
+    });
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status === 200) {
+        const res = JSON.parse(xhr.responseText);
+        resolve(res.secure_url as string);
+      } else {
+        const errMsg = JSON.parse(xhr.responseText)?.error?.message ?? xhr.statusText;
+        reject(new Error(`Cloudinary upload failed: ${errMsg}`));
+      }
+    });
+
+    xhr.addEventListener("error", () =>
+      reject(new Error("Network error during upload. Check your connection."))
+    );
+
+    xhr.send(formData);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  Firestore — Courses
+// ─────────────────────────────────────────────
+
+/** Fetch all courses with their lessons (for students) */
+export async function fetchAllCourses(): Promise<CourseWithLessons[]> {
+  // 1. Get all courses ordered by newest first
+  const coursesSnap = await getDocs(
+    query(collection(db, "courses"), orderBy("created_at", "desc"))
+  );
+  const courses = coursesSnap.docs.map((d) => toCourse(d.id, d.data()));
+
+  if (courses.length === 0) return [];
+
+  // 2. Get all lessons in one round-trip, group by course_id
+  const lessonsSnap = await getDocs(collection(db, "lessons"));
+  const allLessons = lessonsSnap.docs.map((d) => toLesson(d.id, d.data()));
+
+  return courses.map((course) => ({
+    ...course,
+    lessons: allLessons
+      .filter((l) => l.course_id === course.id)
+      .sort((a, b) => a.order - b.order),
+  }));
+}
+
+/** Fetch courses uploaded by a specific teacher */
+export async function fetchTeacherCourses(
+  teacherUid: string,
+): Promise<CourseWithLessons[]> {
+  const coursesSnap = await getDocs(
+    query(
+      collection(db, "courses"),
+      where("teacher_uid", "==", teacherUid),
+      orderBy("created_at", "desc"),
+    )
+  );
+  const courses = coursesSnap.docs.map((d) => toCourse(d.id, d.data()));
+
+  if (courses.length === 0) return [];
+
+  // Fetch lessons for each of this teacher's courses
+  const lessonsSnap = await getDocs(
+    query(collection(db, "lessons"), where("course_id", "in", courses.map((c) => c.id)))
+  );
+  const allLessons = lessonsSnap.docs.map((d) => toLesson(d.id, d.data()));
+
+  return courses.map((course) => ({
+    ...course,
+    lessons: allLessons
+      .filter((l) => l.course_id === course.id)
+      .sort((a, b) => a.order - b.order),
+  }));
+}
+
+/** Fetch a single course with its lessons */
+export async function fetchCourseById(
+  id: string,
+): Promise<CourseWithLessons | null> {
+  const courseSnap = await getDoc(doc(db, "courses", id));
+  if (!courseSnap.exists()) return null;
+
+  const course = toCourse(courseSnap.id, courseSnap.data());
+
+  const lessonsSnap = await getDocs(
+    query(collection(db, "lessons"), where("course_id", "==", id))
+  );
+  const lessons = lessonsSnap.docs
+    .map((d) => toLesson(d.id, d.data()))
+    .sort((a, b) => a.order - b.order);
+
+  return { ...course, lessons };
+}
+
+/** Create a new course document */
+export async function createCourse(
+  payload: Omit<Course, "id" | "created_at">,
+): Promise<Course> {
+  const ref = await addDoc(collection(db, "courses"), {
+    ...payload,
+    created_at: serverTimestamp(),
+  });
+  return {
+    ...payload,
+    id: ref.id,
+    created_at: new Date().toISOString(),
+  };
+}
+
+/** Delete a course document (lessons must be deleted separately or via Cloud Function) */
+export async function deleteCourse(id: string): Promise<void> {
+  // Delete all lessons for this course first
+  const lessonsSnap = await getDocs(
+    query(collection(db, "lessons"), where("course_id", "==", id))
+  );
+  await Promise.all(lessonsSnap.docs.map((d) => deleteDoc(d.ref)));
+  // Then delete the course
+  await deleteDoc(doc(db, "courses", id));
+}
+
+// ─────────────────────────────────────────────
+//  Firestore — Lessons
+// ─────────────────────────────────────────────
+
+/** Add a lesson to an existing course */
+export async function createLesson(
+  payload: Omit<Lesson, "id" | "created_at">,
+): Promise<Lesson> {
+  const ref = await addDoc(collection(db, "lessons"), {
+    ...payload,
+    created_at: serverTimestamp(),
+  });
+  return {
+    ...payload,
+    id: ref.id,
+    created_at: new Date().toISOString(),
+  };
+}
+
+// ─────────────────────────────────────────────
+//  High-level: Upload course with one video lesson
+// ─────────────────────────────────────────────
+
+export interface UploadCoursePayload {
+  teacherUid: string;
+  title: string;
+  description: string;
+  subject: string;
+  classLevel: number;
+  level: string;
+  isFree: boolean;
+  thumbnailFile: File | null;
+  videoFile: File | null;
+  lessonTitle: string;
+  lessonContent: string;
+  onProgress?: (stage: string, pct: number) => void;
+}
+
+export async function uploadCourseWithLesson(
+  payload: UploadCoursePayload,
+): Promise<CourseWithLessons> {
+  const {
+    teacherUid, title, description, subject, classLevel, level,
+    isFree, thumbnailFile, videoFile, lessonTitle, lessonContent, onProgress,
+  } = payload;
+
+  // 1. Upload thumbnail to Cloudinary
+  let thumbnailUrl: string | null = null;
+  if (thumbnailFile) {
+    onProgress?.("Uploading thumbnail…", 0);
+    thumbnailUrl = await uploadFile(
+      thumbnailFile,
+      "", // unused — Cloudinary handles paths internally
+      (pct) => onProgress?.("Uploading thumbnail…", pct),
+    );
+  }
+
+  // 2. Create course document in Firestore
+  onProgress?.("Saving course details…", 0);
+  const course = await createCourse({
+    teacher_uid:   teacherUid,
+    title,
+    description,
+    subject,
+    class_level:   classLevel,
+    level,
+    is_free:       isFree,
+    thumbnail_url: thumbnailUrl,
+    total_duration: "—",
+  });
+
+  // 3. Upload video to Cloudinary
+  let videoUrl: string | null = null;
+  if (videoFile) {
+    onProgress?.("Uploading video…", 0);
+    videoUrl = await uploadFile(
+      videoFile,
+      "", // unused — Cloudinary handles paths internally
+      (pct) => onProgress?.("Uploading video…", pct),
+    );
+  }
+
+  // 4. Create lesson document in Firestore
+  onProgress?.("Saving lesson…", 100);
+  const lesson = await createLesson({
+    course_id: course.id,
+    title:     lessonTitle,
+    type:      videoUrl ? "video" : "reading",
+    video_url: videoUrl,
+    pdf_url:   null,
+    content:   lessonContent,
+    duration:  "—",
+    order:     1,
+  });
+
+  return { ...course, lessons: [lesson] };
+}

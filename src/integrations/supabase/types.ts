@@ -7,14 +7,99 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
-      [_ in never]: never
+      courses: {
+        Row: {
+          id: string
+          teacher_uid: string
+          title: string
+          description: string
+          subject: string
+          class_level: number
+          thumbnail_url: string | null
+          is_free: boolean
+          level: string
+          total_duration: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          teacher_uid: string
+          title: string
+          description: string
+          subject: string
+          class_level: number
+          thumbnail_url?: string | null
+          is_free?: boolean
+          level?: string
+          total_duration?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          teacher_uid?: string
+          title?: string
+          description?: string
+          subject?: string
+          class_level?: number
+          thumbnail_url?: string | null
+          is_free?: boolean
+          level?: string
+          total_duration?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      lessons: {
+        Row: {
+          id: string
+          course_id: string
+          title: string
+          type: 'video' | 'reading' | 'quiz'
+          video_url: string | null
+          pdf_url: string | null
+          content: string | null
+          duration: string
+          order: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          course_id: string
+          title: string
+          type: 'video' | 'reading' | 'quiz'
+          video_url?: string | null
+          pdf_url?: string | null
+          content?: string | null
+          duration?: string
+          order?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          course_id?: string
+          title?: string
+          type?: 'video' | 'reading' | 'quiz'
+          video_url?: string | null
+          pdf_url?: string | null
+          content?: string | null
+          duration?: string
+          order?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lessons_course_id_fkey"
+            columns: ["course_id"]
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never

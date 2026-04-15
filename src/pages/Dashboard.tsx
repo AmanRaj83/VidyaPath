@@ -3,7 +3,8 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Flame, Star, Trophy, BookOpen, Target, ArrowRight } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
-import { courses, getStoredProgress, getStoredBadges, getXP, getStreak } from "@/data/courses";
+import { getStoredProgress, getStoredBadges, getXP, getStreak } from "@/data/courses";
+import { fetchAllCourses, type CourseWithLessons } from "@/services/courseService";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import type { UserProgress, Badge } from "@/types";
@@ -16,6 +17,8 @@ const Dashboard = () => {
   const [badges, setBadges] = useState<Badge[]>([]);
   const [xp, setXP] = useState(0);
   const [streak, setStreak] = useState(0);
+  const [courses, setCourses] = useState<CourseWithLessons[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(true);
 
   useEffect(() => {
     setProgress(getStoredProgress());
@@ -24,17 +27,26 @@ const Dashboard = () => {
     setStreak(getStreak());
   }, []);
 
-  const totalLessons = courses.reduce((acc, c) => acc + c.lessons.length, 0);
+  useEffect(() => {
+    fetchAllCourses()
+      .then(setCourses)
+      .catch(() => {})
+      .finally(() => setLoadingCourses(false));
+  }, []);
+
+  const totalLessons = courses.reduce((acc, c) => acc + (c.lessons?.length ?? 0), 0);
   const completedLessons = progress.reduce((acc, p) => acc + p.completedLessons.length, 0);
   const overallPercent = totalLessons > 0 ? (completedLessons / totalLessons) * 100 : 0;
   const level = Math.floor(xp / 100) + 1;
   const xpToNext = 100 - (xp % 100);
   const earnedBadges = badges.filter((b) => b.earned);
+
   const onboarding = user ? getOnboardingProfile(user.uid) : null;
   const recommendedSubjects = onboarding ? classSubjects[onboarding.classGroup] ?? [] : [];
-  const recommendedCourses = recommendedSubjects.length > 0
-    ? courses.filter((course) => recommendedSubjects.includes(course.subject)).slice(0, 3)
-    : courses.slice(0, 3);
+  const recommendedCourses =
+    recommendedSubjects.length > 0
+      ? courses.filter((c) => recommendedSubjects.includes(c.subject)).slice(0, 3)
+      : courses.slice(0, 3);
 
   const statCards = [
     { icon: Star, label: "Total XP", value: xp.toString(), color: "text-primary" },
@@ -73,8 +85,12 @@ const Dashboard = () => {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-sm font-semibold">
-                <span className="rounded-full bg-primary/10 px-3 py-1 text-primary">Class {onboarding.classGroup}</span>
-                <span className="rounded-full bg-secondary/10 px-3 py-1 text-secondary">{onboarding.goal.replace(/-/g, " ")}</span>
+                <span className="rounded-full bg-primary/10 px-3 py-1 text-primary">
+                  Class {onboarding.classGroup}
+                </span>
+                <span className="rounded-full bg-secondary/10 px-3 py-1 text-secondary">
+                  {onboarding.goal.replace(/-/g, " ")}
+                </span>
               </div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -123,7 +139,7 @@ const Dashboard = () => {
           <Progress value={((xp % 100) / 100) * 100} className="mt-4 h-3" />
         </motion.div>
 
-        {/* Course Progress */}
+        {/* Course Progress / Recommended */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -131,33 +147,68 @@ const Dashboard = () => {
           className="mt-8"
         >
           <h2 className="font-display text-xl font-bold text-foreground">
-            {onboarding ? "Recommended for you" : "Course Progress"}
+            {onboarding ? "Recommended for you" : "All Courses"}
           </h2>
-          <div className="mt-4 space-y-4">
-            {(onboarding ? recommendedCourses : courses).map((course) => {
-              const cp = progress.find((p) => p.courseId === course.id);
-              const done = cp ? cp.completedLessons.length : 0;
-              const pct = (done / course.lessons.length) * 100;
-              return (
-                <Link
-                  key={course.id}
-                  to={`/courses/${course.id}`}
-                  className="flex items-center gap-4 rounded-xl border bg-card p-5 shadow-card transition-all hover:shadow-elevated"
-                >
-                  <span className="text-3xl">{course.thumbnail}</span>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-display font-bold text-foreground">{course.title}</h3>
-                      <span className="text-sm font-bold text-primary">{Math.round(pct)}%</span>
+
+          {loadingCourses ? (
+            <div className="mt-6 flex justify-center">
+              <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+            </div>
+          ) : (
+            <div className="mt-4 space-y-4">
+              {(onboarding ? recommendedCourses : courses.slice(0, 5)).map((course) => {
+                const cp = progress.find((p) => p.courseId === course.id);
+                const done = cp ? cp.completedLessons.length : 0;
+                const total = course.lessons?.length ?? 1;
+                const pct = (done / total) * 100;
+                return (
+                  <Link
+                    key={course.id}
+                    to={`/courses/${course.id}`}
+                    className="flex items-center gap-4 rounded-xl border bg-card p-4 shadow-card transition-all hover:shadow-elevated overflow-hidden"
+                  >
+                    {course.thumbnail_url ? (
+                      <img
+                        src={course.thumbnail_url}
+                        alt={course.title}
+                        className="w-16 h-16 rounded-lg object-cover shrink-0"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 bg-emerald-50 rounded-lg flex items-center justify-center shrink-0">
+                        <BookOpen className="h-7 w-7 text-emerald-300" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-display font-bold text-foreground truncate">{course.title}</h3>
+                        <span className="text-sm font-bold text-primary ml-2 shrink-0">{Math.round(pct)}%</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {course.subject} · Class {course.class_level}
+                      </p>
+                      <Progress value={pct} className="mt-2 h-2" />
+                      <p className="mt-1 text-xs text-muted-foreground">{done}/{total} lessons</p>
                     </div>
-                    <Progress value={pct} className="mt-2 h-2" />
-                    <p className="mt-1 text-xs text-muted-foreground">{done}/{course.lessons.length} lessons</p>
-                  </div>
-                  <ArrowRight className="h-5 w-5 text-muted-foreground" />
-                </Link>
-              );
-            })}
-          </div>
+                    <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
+                  </Link>
+                );
+              })}
+
+              {courses.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No courses available yet. Check back soon!</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {courses.length > 0 && (
+            <div className="mt-4 text-center">
+              <Link to="/courses" className="inline-flex items-center gap-2 font-display font-bold text-primary hover:underline text-sm">
+                Browse all {courses.length} courses <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          )}
         </motion.div>
 
         {/* Badges */}
@@ -191,8 +242,7 @@ const Dashboard = () => {
           </div>
         </motion.div>
 
-        {/* Empty state */}
-        {completedLessons === 0 && (
+        {completedLessons === 0 && !loadingCourses && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
