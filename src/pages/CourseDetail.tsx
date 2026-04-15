@@ -106,14 +106,21 @@ const CourseDetail = () => {
 
     const progress = getStoredProgress();
     const idx = progress.findIndex((p) => p.courseId === course.id);
-    const entry = {
-      courseId: course.id,
-      completedLessons: updated,
-      quizScores: [],
-      lastAccessed: new Date().toISOString(),
-    };
-    if (idx >= 0) progress[idx] = { ...progress[idx], ...entry };
-    else progress.push(entry);
+    if (idx >= 0) {
+      // Preserve existing quizScores — only update completedLessons + lastAccessed
+      progress[idx] = {
+        ...progress[idx],
+        completedLessons: updated,
+        lastAccessed: new Date().toISOString(),
+      };
+    } else {
+      progress.push({
+        courseId: course.id,
+        completedLessons: updated,
+        quizScores: [],
+        lastAccessed: new Date().toISOString(),
+      });
+    }
     saveProgress(progress);
 
     addXP(10);
@@ -139,6 +146,28 @@ const CourseDetail = () => {
     }
   };
 
+  // ── Save quiz score to progress ────────────────────────────────────────────────
+  const saveQuizScore = (lessonId: string, correct: number, total: number) => {
+    const progress = getStoredProgress();
+    const idx = progress.findIndex((p) => p.courseId === course.id);
+    const newScore = { lessonId, score: correct, total };
+    if (idx >= 0) {
+      const existing = progress[idx].quizScores ?? [];
+      const si = existing.findIndex((s) => s.lessonId === lessonId);
+      if (si >= 0) existing[si] = newScore;
+      else existing.push(newScore);
+      progress[idx] = { ...progress[idx], quizScores: existing };
+    } else {
+      progress.push({
+        courseId: course.id,
+        completedLessons: [],
+        quizScores: [newScore],
+        lastAccessed: new Date().toISOString(),
+      });
+    }
+    saveProgress(progress);
+  };
+
   // ── Quiz submit ───────────────────────────────────────────────────────────────
   const handleQuizSubmit = () => {
     if (!quizState || !activeLesson) return;
@@ -153,6 +182,9 @@ const CourseDetail = () => {
     const score = Math.round((correct / quiz.length) * 100);
     addXP(correct * 5);
     toast.success(`Quiz score: ${correct}/${quiz.length} (${score}%) — +${correct * 5} XP`);
+
+    // ✅ Persist score so it appears on the student dashboard
+    saveQuizScore(activeLesson, correct, quiz.length);
 
     if (correct === quiz.length) {
       const badges = getStoredBadges();
@@ -488,11 +520,36 @@ const CourseDetail = () => {
                       Submit Quiz
                     </Button>
                   )}
-                  {quizState?.submitted && (
-                    <div className="mt-6 rounded-lg bg-success/10 p-4 text-center">
-                      <p className="font-display font-bold text-success">Quiz completed! Review your answers above.</p>
-                    </div>
-                  )}
+                  {quizState?.submitted && (() => {
+                    const quiz = activeL.questions ?? [];
+                    const correct = quizState.answers.filter((a, i) => a === quiz[i]?.correctAnswer).length;
+                    const pct = quiz.length > 0 ? Math.round((correct / quiz.length) * 100) : 0;
+                    const isPerfect = correct === quiz.length;
+                    const isPass = pct >= 60;
+                    return (
+                      <div className={`mt-6 rounded-xl border p-5 text-center ${
+                        isPerfect ? "border-yellow-400/40 bg-yellow-400/10" :
+                        isPass ? "border-success/40 bg-success/10" :
+                        "border-destructive/30 bg-destructive/10"
+                      }`}>
+                        <div className="text-4xl mb-2">
+                          {isPerfect ? "🏆" : isPass ? "✅" : "📝"}
+                        </div>
+                        <p className={`font-display text-2xl font-extrabold ${
+                          isPerfect ? "text-yellow-600" : isPass ? "text-success" : "text-destructive"
+                        }`}>{pct}%</p>
+                        <p className="mt-1 font-display font-bold text-foreground">
+                          {correct}/{quiz.length} correct
+                        </p>
+                        <p className={`mt-1 text-sm font-semibold ${
+                          isPerfect ? "text-yellow-600" : isPass ? "text-success" : "text-muted-foreground"
+                        }`}>
+                          {isPerfect ? "Perfect score! 🎉" : isPass ? "Great job — passed!" : "Keep practicing!"}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">Score saved to your dashboard.</p>
+                      </div>
+                    );
+                  })()}
                 </motion.div>
 
               ) : (

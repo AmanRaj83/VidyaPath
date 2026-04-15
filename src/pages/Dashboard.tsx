@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Flame, Star, Trophy, BookOpen, Target, ArrowRight } from "lucide-react";
+import { Flame, Star, Trophy, BookOpen, Target, ArrowRight, Medal } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { getStoredProgress, getStoredBadges, getXP, getStreak } from "@/data/courses";
 import { fetchAllCourses, type CourseWithLessons } from "@/services/courseService";
@@ -47,6 +47,22 @@ const Dashboard = () => {
     recommendedSubjects.length > 0
       ? courses.filter((c) => recommendedSubjects.includes(c.subject)).slice(0, 3)
       : courses.slice(0, 3);
+
+  // Build flat list of all saved quiz scores enriched with course/lesson names
+  const allQuizScores = progress.flatMap((p) => {
+    const course = courses.find((c) => c.id === p.courseId);
+    return (p.quizScores ?? []).map((qs) => {
+      const lesson = course?.lessons?.find((l) => l.id === qs.lessonId);
+      const pct = qs.total > 0 ? Math.round((qs.score / qs.total) * 100) : 0;
+      return {
+        courseTitle: course?.title ?? "Unknown Course",
+        lessonTitle: lesson?.title ?? "Quiz",
+        score: qs.score,
+        total: qs.total,
+        pct,
+      };
+    });
+  });
 
   const statCards = [
     { icon: Star, label: "Total XP", value: xp.toString(), color: "text-primary" },
@@ -241,6 +257,70 @@ const Dashboard = () => {
             ))}
           </div>
         </motion.div>
+
+        {/* ── Quiz Results ──────────────────────────────────────────── */}
+        {allQuizScores.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.7 }}
+            className="mt-8"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Medal className="h-5 w-5 text-primary" />
+              <h2 className="font-display text-xl font-bold text-foreground">
+                Quiz Results
+              </h2>
+              <span className="ml-auto text-sm text-muted-foreground">
+                {allQuizScores.length} attempt{allQuizScores.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {allQuizScores.map((qs, i) => {
+                const isPerfect = qs.score === qs.total;
+                const isPass = qs.pct >= 60;
+                return (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.7 + i * 0.05 }}
+                    className="rounded-xl border bg-card p-5 shadow-card flex items-center gap-4"
+                  >
+                    {/* Score ring */}
+                    <div className={`relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4 font-display text-lg font-extrabold ${
+                      isPerfect
+                        ? "border-yellow-400 text-yellow-600 bg-yellow-400/10"
+                        : isPass
+                        ? "border-success text-success bg-success/10"
+                        : "border-destructive text-destructive bg-destructive/10"
+                    }`}>
+                      {qs.pct}%
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-muted-foreground truncate">{qs.courseTitle}</p>
+                      <h3 className="font-display font-bold text-foreground text-sm truncate mt-0.5">{qs.lessonTitle}</h3>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${
+                          isPerfect
+                            ? "bg-yellow-400/15 text-yellow-600"
+                            : isPass
+                            ? "bg-success/15 text-success"
+                            : "bg-destructive/15 text-destructive"
+                        }`}>
+                          {isPerfect ? "🏆 Perfect" : isPass ? "✅ Passed" : "📝 Try again"}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {qs.score}/{qs.total} correct
+                        </span>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
 
         {completedLessons === 0 && !loadingCourses && (
           <motion.div
