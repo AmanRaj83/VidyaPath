@@ -20,6 +20,8 @@ const CLOUDINARY_PRESET  = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as stri
 export interface Course {
   id: string;
   teacher_uid: string;
+  teacher_name: string;
+  teacher_photo_url: string | null;
   title: string;
   description: string;
   subject: string;
@@ -29,6 +31,12 @@ export interface Course {
   level: string;
   total_duration: string;
   created_at: string;
+}
+
+export interface QuizQuestion {
+  question: string;
+  options: [string, string, string, string];
+  correctAnswer: number; // 0–3 index
 }
 
 export interface Lesson {
@@ -41,6 +49,7 @@ export interface Lesson {
   content: string | null;
   duration: string;
   order: number;
+  questions?: QuizQuestion[];
   created_at: string;
 }
 
@@ -54,16 +63,18 @@ export type CourseWithLessons = Course & { lessons: Lesson[] };
 function toCourse(id: string, data: DocumentData): Course {
   return {
     id,
-    teacher_uid:   data.teacher_uid   ?? "",
-    title:         data.title         ?? "",
-    description:   data.description   ?? "",
-    subject:       data.subject       ?? "",
-    class_level:   data.class_level   ?? 6,
-    thumbnail_url: data.thumbnail_url ?? null,
-    is_free:       data.is_free       ?? true,
-    level:         data.level         ?? "Beginner",
-    total_duration: data.total_duration ?? "—",
-    created_at:    data.created_at instanceof Timestamp
+    teacher_uid:      data.teacher_uid      ?? "",
+    teacher_name:     data.teacher_name     ?? "Teacher",
+    teacher_photo_url: data.teacher_photo_url ?? null,
+    title:            data.title            ?? "",
+    description:      data.description      ?? "",
+    subject:          data.subject          ?? "",
+    class_level:      data.class_level      ?? 6,
+    thumbnail_url:    data.thumbnail_url    ?? null,
+    is_free:          data.is_free          ?? true,
+    level:            data.level            ?? "Beginner",
+    total_duration:   data.total_duration   ?? "—",
+    created_at:       data.created_at instanceof Timestamp
       ? data.created_at.toDate().toISOString()
       : data.created_at ?? new Date().toISOString(),
   };
@@ -81,6 +92,7 @@ function toLesson(id: string, data: DocumentData): Lesson {
     content:    data.content    ?? null,
     duration:   data.duration   ?? "—",
     order:      data.order      ?? 1,
+    questions:  Array.isArray(data.questions) ? data.questions as QuizQuestion[] : undefined,
     created_at: data.created_at instanceof Timestamp
       ? data.created_at.toDate().toISOString()
       : data.created_at ?? new Date().toISOString(),
@@ -92,12 +104,42 @@ function toLesson(id: string, data: DocumentData): Lesson {
 // ─────────────────────────────────────────────
 
 /**
- * Uploads a file to Cloudinary using an unsigned preset.
- * resourceType:
- *   "image" → thumbnails
- *   "video" → video files
- *   "raw"   → PDFs and other documents
+ * Cloudinary response shape (partial).
  */
+interface CloudinaryResponse {
+  secure_url: string;
+  url: string;
+  resource_type: "image" | "video" | "raw";
+  format: string;
+  public_id: string;
+  version: number;
+  error?: { message: string };
+}
+
+/**
+ * Build the correct delivery URL from a Cloudinary response.
+ * For PDFs stored as 'image' type, we add fl_attachment so the
+ * browser downloads the actual PDF bytes instead of a rendered image.
+ * For 'raw' type, we use the secure_url directly.
+ */
+function buildCloudinaryUrl(res: CloudinaryResponse): string {
+  const isPdf = res.format === "pdf" || res.public_id.endsWith(".pdf");
+
+  if (isPdf && res.resource_type === "image") {
+    // image/upload URL won't serve PDF bytes — add fl_attachment transformation
+    return `https://res.cloudinary.com/${CLOUDINARY_CLOUD}/image/upload/fl_attachment/v${res.version}/${res.public_id}.pdf`;
+  }
+
+  if (isPdf && res.resource_type === "raw") {
+    // raw/upload URLs are served directly — just ensure .pdf extension
+    const base = `https://res.cloudinary.com/${CLOUDINARY_CLOUD}/raw/upload/v${res.version}/${res.public_id}`;
+    return res.public_id.endsWith(".pdf") ? base : `${base}.pdf`;
+  }
+
+  // Images and videos — use secure_url as-is
+  return res.secure_url;
+}
+
 export function uploadFile(
   file: File,
   _path: string,
@@ -115,7 +157,6 @@ export function uploadFile(
       `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/${resourceType}/upload`,
     );
 
-    // Track upload progress
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable) {
         const pct = Math.round((e.loaded / e.total) * 100);
@@ -125,10 +166,21 @@ export function uploadFile(
 
     xhr.addEventListener("load", () => {
       if (xhr.status === 200) {
-        const res = JSON.parse(xhr.responseText);
-        resolve(res.secure_url as string);
+        const res: CloudinaryResponse = JSON.parse(xhr.responseText);
+        // Log for debugging
+        console.log("[Cloudinary] Upload response:", {
+          resource_type: res.resource_type,
+          format: res.format,
+          public_id: res.public_id,
+          version: res.version,
+          secure_url: res.secure_url,
+        });
+        resolve(buildCloudinaryUrl(res));
       } else {
-        const errMsg = JSON.parse(xhr.responseText)?.error?.message ?? xhr.statusText;
+        let errMsg = xhr.statusText;
+        try {
+          errMsg = JSON.parse(xhr.responseText)?.error?.message ?? errMsg;
+        } catch { /* ignore parse errors */ }
         reject(new Error(`Cloudinary upload failed: ${errMsg}`));
       }
     });
@@ -140,6 +192,7 @@ export function uploadFile(
     xhr.send(formData);
   });
 }
+
 
 // ─────────────────────────────────────────────
 //  Firestore — Courses
@@ -270,6 +323,8 @@ export async function createLesson(
 
 export interface UploadCoursePayload {
   teacherUid: string;
+  teacherName: string;
+  teacherPhotoUrl: string | null;
   title: string;
   description: string;
   subject: string;
@@ -288,7 +343,8 @@ export async function uploadCourseWithLesson(
   payload: UploadCoursePayload,
 ): Promise<CourseWithLessons> {
   const {
-    teacherUid, title, description, subject, classLevel, level,
+    teacherUid, teacherName, teacherPhotoUrl,
+    title, description, subject, classLevel, level,
     isFree, thumbnailFile, videoFile, pdfFile, lessonTitle, lessonContent, onProgress,
   } = payload;
 
@@ -307,7 +363,9 @@ export async function uploadCourseWithLesson(
   // 2. Create course document in Firestore
   onProgress?.("Saving course details…", 0);
   const course = await createCourse({
-    teacher_uid:   teacherUid,
+    teacher_uid:      teacherUid,
+    teacher_name:     teacherName,
+    teacher_photo_url: teacherPhotoUrl,
     title,
     description,
     subject,
@@ -361,3 +419,59 @@ export async function uploadCourseWithLesson(
   return { ...course, lessons: [lesson] };
 }
 
+// ─────────────────────────────────────────────
+//  High-level: Add a lesson to an existing course
+// ─────────────────────────────────────────────
+
+export interface AddLessonPayload {
+  courseId: string;
+  title: string;
+  content: string;
+  videoFile: File | null;
+  pdfFile: File | null;
+  questions?: QuizQuestion[];
+  order: number;
+  onProgress?: (stage: string, pct: number) => void;
+}
+
+export async function addLessonToCourse(payload: AddLessonPayload): Promise<Lesson> {
+  const { courseId, title, content, videoFile, pdfFile, questions, order, onProgress } = payload;
+
+  // Quiz lesson — no file uploads needed
+  if (questions && questions.length > 0) {
+    return createLesson({
+      course_id: courseId,
+      title,
+      type: "quiz",
+      video_url: null,
+      pdf_url: null,
+      content,
+      duration: "—",
+      order,
+      questions,
+    });
+  }
+
+  let videoUrl: string | null = null;
+  if (videoFile) {
+    onProgress?.("Uploading video…", 0);
+    videoUrl = await uploadFile(videoFile, "", (pct) => onProgress?.("Uploading video…", pct), "video");
+  }
+
+  let pdfUrl: string | null = null;
+  if (pdfFile) {
+    onProgress?.("Uploading PDF…", 0);
+    pdfUrl = await uploadFile(pdfFile, "", (pct) => onProgress?.("Uploading PDF…", pct), "auto");
+  }
+
+  return createLesson({
+    course_id: courseId,
+    title,
+    type:      videoUrl ? "video" : "reading",
+    video_url: videoUrl,
+    pdf_url:   pdfUrl,
+    content,
+    duration:  "—",
+    order,
+  });
+}

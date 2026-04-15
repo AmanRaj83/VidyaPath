@@ -142,8 +142,9 @@ const CourseDetail = () => {
   // ── Quiz submit ───────────────────────────────────────────────────────────────
   const handleQuizSubmit = () => {
     if (!quizState || !activeLesson) return;
-    const quiz = quizData[activeLesson];
-    if (!quiz) return;
+    const activeL = lessons.find((l) => l.id === activeLesson);
+    const quiz = activeL?.questions;
+    if (!quiz || quiz.length === 0) return;
     let correct = 0;
     quizState.answers.forEach((a, i) => {
       if (a === quiz[i].correctAnswer) correct++;
@@ -294,6 +295,25 @@ const CourseDetail = () => {
                 )}
               </div>
 
+              {/* Teacher info */}
+              <div className="mt-4 flex items-center gap-3 rounded-xl bg-muted/40 px-3 py-2.5">
+                {course.teacher_photo_url ? (
+                  <img
+                    src={course.teacher_photo_url}
+                    alt={course.teacher_name}
+                    className="h-8 w-8 rounded-full object-cover ring-2 ring-primary/20"
+                  />
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-sm">
+                    {(course.teacher_name ?? 'T')[0].toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs text-muted-foreground">Instructor</p>
+                  <p className="text-sm font-semibold text-foreground">{course.teacher_name ?? 'Teacher'}</p>
+                </div>
+              </div>
+
               {/* Progress */}
               <div className="mt-4">
                 <div className="flex items-center justify-between text-sm">
@@ -410,7 +430,7 @@ const CourseDetail = () => {
                   )}
                 </motion.div>
 
-              ) : activeL.type === "quiz" && quizData[activeL.id] ? (
+              ) : activeL.type === "quiz" && activeL.questions && activeL.questions.length > 0 ? (
                 // ── Quiz View ─────────────────────────────────────────────────
                 <motion.div
                   key={activeL.id}
@@ -421,7 +441,7 @@ const CourseDetail = () => {
                 >
                   <h2 className="font-display text-2xl font-bold text-foreground">{activeL.title}</h2>
                   <div className="mt-6 space-y-6">
-                    {quizData[activeL.id].map((q, qi) => (
+                    {activeL.questions.map((q, qi) => (
                       <div key={qi} className="rounded-lg border bg-muted/30 p-5">
                         <p className="font-display font-bold text-foreground">{qi + 1}. {q.question}</p>
                         <div className="mt-3 space-y-2">
@@ -463,7 +483,7 @@ const CourseDetail = () => {
                     <Button
                       className="mt-6 bg-gradient-primary font-display font-bold text-primary-foreground"
                       onClick={handleQuizSubmit}
-                      disabled={!quizState || quizState.answers.length < quizData[activeL.id].length}
+                      disabled={!quizState || quizState.answers.length < (activeL.questions?.length ?? 0)}
                     >
                       Submit Quiz
                     </Button>
@@ -553,17 +573,38 @@ const CourseDetail = () => {
                     </div>
                   )}
 
-                  {/* PDF link */}
-                  {activeL.pdf_url && (
-                    <a
-                      href={activeL.pdf_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mb-6 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/10 transition"
-                    >
-                      <FileText className="h-4 w-4" /> View / Download PDF Notes
-                    </a>
-                  )}
+                  {/* PDF Viewer */}
+                  {activeL.pdf_url && (() => {
+                    // Force download via Cloudinary fl_attachment flag
+                    // Works for both /image/upload/ and /raw/upload/ URLs
+                    const downloadUrl = activeL.pdf_url.replace('/upload/', '/upload/fl_attachment/');
+                    // Google Docs viewer for inline embed — works with any public PDF URL
+                    const embedUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(activeL.pdf_url)}&embedded=true`;
+                    return (
+                      <div className="mb-6">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                            <FileText className="h-4 w-4 text-primary" /> PDF Notes
+                          </span>
+                          <a
+                            href={downloadUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 transition"
+                          >
+                            <Download className="h-3 w-3" /> Download PDF
+                          </a>
+                        </div>
+                        <iframe
+                          src={embedUrl}
+                          className="w-full rounded-xl border shadow-sm bg-gray-50"
+                          style={{ height: '560px' }}
+                          title="PDF Viewer"
+                          allow="fullscreen"
+                        />
+                      </div>
+                    );
+                  })()}
 
                   {/* Lesson Content / Notes */}
                   {activeL.content && (

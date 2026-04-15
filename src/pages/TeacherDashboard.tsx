@@ -11,9 +11,11 @@ import {
 import { toast } from 'sonner';
 import {
   uploadCourseWithLesson,
+  addLessonToCourse,
   fetchTeacherCourses,
   deleteCourse,
   type CourseWithLessons,
+  type QuizQuestion,
 } from '@/services/courseService';
 
 type Section = 'Dashboard' | 'My Courses' | 'Upload Course' | 'Earnings';
@@ -132,9 +134,13 @@ const DropZone = ({
 
 const UploadCourseForm = ({
   teacherUid,
+  teacherName,
+  teacherPhotoUrl,
   onSuccess,
 }: {
   teacherUid: string;
+  teacherName: string;
+  teacherPhotoUrl: string | null;
   onSuccess: () => void;
 }) => {
   const [title, setTitle] = useState('');
@@ -166,6 +172,8 @@ const UploadCourseForm = ({
     try {
       await uploadCourseWithLesson({
         teacherUid,
+        teacherName,
+        teacherPhotoUrl,
         title,
         description,
         subject,
@@ -330,329 +338,563 @@ const UploadCourseForm = ({
   );
 };
 
-// ─── My Courses List ──────────────────────────────────────────────────────────
+const EMPTY_Q = (): QuizQuestion => ({
+  question: '',
+  options: ['', '', '', ''],
+  correctAnswer: 0,
+});
 
-const MyCourses = ({ teacherUid, onUpload }: { teacherUid: string; onUpload: () => void }) => {
-  const [courses, setCourses] = useState<CourseWithLessons[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchTeacherCourses(teacherUid);
-      setCourses(data);
-    } catch {
-      toast.error('Failed to load courses.');
+              const AddLessonModal = ({
+                course,
+                onClose,
+                onAdded,
+}: {
+                course: CourseWithLessons;
+  onClose: () => void;
+  onAdded: () => void;
+}) => {
+  const [lessonType, setLessonType] = useState<'video' | 'reading' | 'quiz'>('video');
+              const [lessonTitle, setLessonTitle] = useState('');
+              const [lessonContent, setLessonContent] = useState('');
+              const [videoFile, setVideoFile] = useState<File | null>(null);
+              const [pdfFile, setPdfFile] = useState<File | null>(null);
+              const [questions, setQuestions] = useState<QuizQuestion[]>([EMPTY_Q()]);
+              const [uploading, setUploading] = useState(false);
+              const [stage, setStage] = useState('');
+              const [pct, setPct] = useState(0);
+              const [error, setError] = useState('');
+
+              const updateQ = (i: number, patch: Partial<QuizQuestion>) =>
+    setQuestions(qs => qs.map((q, idx) => idx === i ? {...q, ...patch } : q));
+
+  const updateOption = (qi: number, oi: number, val: string) =>
+    setQuestions(qs => qs.map((q, idx) => {
+      if (idx !== qi) return q;
+                const opts = [...q.options] as [string, string, string, string];
+                opts[oi] = val;
+                return {...q, options: opts };
+    }));
+
+  const handleAdd = async (e: React.FormEvent) => {
+                  e.preventDefault();
+                if (!lessonTitle.trim()) {setError('Lesson title is required.'); return; }
+                if (lessonType === 'quiz') {
+      const invalid = questions.some(q => !q.question.trim() || q.options.some(o => !o.trim()));
+                if (invalid) {setError('All questions and options must be filled in.'); return; }
+    }
+                setError('');
+                setUploading(true);
+                try {
+                  await addLessonToCourse({
+                    courseId: course.id,
+                    title: lessonTitle,
+                    content: lessonContent,
+                    videoFile: lessonType === 'video' ? videoFile : null,
+                    pdfFile: lessonType !== 'quiz' ? pdfFile : null,
+                    questions: lessonType === 'quiz' ? questions : undefined,
+                    order: (course.lessons?.length ?? 0) + 1,
+                    onProgress: (s, p) => { setStage(s); setPct(p); },
+                  });
+                toast.success('Lesson added!');
+                onAdded();
+                onClose();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to add lesson.';
+                setError(msg);
+                toast.error(msg);
     } finally {
-      setLoading(false);
+                  setUploading(false);
     }
   };
 
-  useEffect(() => { load(); }, [teacherUid]);
+                const inputCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 transition';
+                const TYPE_BTNS: {key: 'video' | 'reading' | 'quiz'; label: string; icon: React.ElementType }[] = [
+                {key: 'video', label: 'Video', icon: Video },
+                {key: 'reading', label: 'Reading', icon: FileText },
+                {key: 'quiz', label: 'Quiz', icon: CheckCircle },
+                ];
+
+                return (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm overflow-y-auto">
+                  {uploading && <UploadProgress stage={stage} pct={pct} />}
+                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8">
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-5 border-b">
+                      <div>
+                        <h3 className="font-bold text-gray-900 text-lg">Add Lesson</h3>
+                        <p className="text-xs text-gray-400 mt-0.5">{course.title}</p>
+                      </div>
+                      <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                    </div>
+
+                    <form onSubmit={handleAdd} className="p-5 space-y-5">
+                      {error && (
+                        <div className="text-red-600 text-sm flex items-center gap-2 bg-red-50 px-3 py-2 rounded-lg">
+                          <AlertCircle size={14} /> {error}
+                        </div>
+                      )}
+
+                      {/* Lesson Type */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Lesson Type</label>
+                        <div className="flex gap-2">
+                          {TYPE_BTNS.map(({ key, label, icon: Icon }) => (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => setLessonType(key)}
+                              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition ${lessonType === key
+                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow'
+                                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                                }`}
+                            >
+                              <Icon size={15} /> {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Title */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Lesson Title *</label>
+                        <input className={inputCls} placeholder="e.g. Chapter 2 - Fractions" value={lessonTitle} onChange={e => setLessonTitle(e.target.value)} />
+                      </div>
+
+                      {/* Video / Reading: Content + Files */}
+                      {lessonType !== 'quiz' && (
+                        <>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">Notes / Content</label>
+                            <textarea className={`${inputCls} h-20 resize-none`} placeholder="Lesson notes or transcript..." value={lessonContent} onChange={e => setLessonContent(e.target.value)} />
+                          </div>
+                          <div className={`grid gap-3 ${lessonType === 'video' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                            {lessonType === 'video' && (
+                              <DropZone id="modal-video" accept="video/*" label="Video" hint="MP4, WebM" icon={Video} file={videoFile} onFile={setVideoFile} />
+                            )}
+                            <DropZone id="modal-pdf" accept="application/pdf,.pdf" label="PDF Notes" hint="PDF only" icon={FileText} file={pdfFile} onFile={setPdfFile} />
+                          </div>
+                        </>
+                      )}
+
+                      {/* Quiz Builder */}
+                      {lessonType === 'quiz' && (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-semibold text-gray-700">Questions ({questions.length})</label>
+                            <button
+                              type="button"
+                              onClick={() => setQuestions(qs => [...qs, EMPTY_Q()])}
+                              className="text-xs font-bold text-emerald-600 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-50 flex items-center gap-1 transition"
+                            >
+                              <Plus size={12} /> Add Question
+                            </button>
+                          </div>
+
+                          <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
+                            {questions.map((q, qi) => (
+                              <div key={qi} className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+                                <div className="flex items-start gap-2">
+                                  <span className="mt-2 text-xs font-bold text-emerald-700 shrink-0 w-5">Q{qi + 1}</span>
+                                  <input
+                                    className={inputCls + ' flex-1'}
+                                    placeholder={`Question ${qi + 1}`}
+                                    value={q.question}
+                                    onChange={e => updateQ(qi, { question: e.target.value })}
+                                  />
+                                  {questions.length > 1 && (
+                                    <button type="button" onClick={() => setQuestions(qs => qs.filter((_, i) => i !== qi))} className="mt-2 text-red-400 hover:text-red-600">
+                                      <X size={14} />
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Options */}
+                                <div className="grid grid-cols-2 gap-2">
+                                  {(['A', 'B', 'C', 'D'] as const).map((letter, oi) => (
+                                    <div key={oi} className="flex items-center gap-2">
+                                      <input
+                                        type="radio"
+                                        name={`correct-${qi}`}
+                                        checked={q.correctAnswer === oi}
+                                        onChange={() => updateQ(qi, { correctAnswer: oi })}
+                                        className="accent-emerald-600 shrink-0"
+                                        title="Mark as correct answer"
+                                      />
+                                      <span className="text-xs font-bold text-gray-500 shrink-0">{letter}</span>
+                                      <input
+                                        className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                                        placeholder={`Option ${letter}`}
+                                        value={q.options[oi]}
+                                        onChange={e => updateOption(qi, oi, e.target.value)}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                                <p className="text-[11px] text-gray-400">● mark the radio button next to the correct answer</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex gap-3 pt-1">
+                        <button type="button" onClick={onClose} className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+                        <button type="submit" disabled={uploading} className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2">
+                          <Plus size={16} /> Add Lesson
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+                );
+};
+
+                // ─── My Courses List ──────────────────────────────────────────────────────────
+
+                const MyCourses = ({teacherUid, onUpload}: {teacherUid: string; onUpload: () => void }) => {
+  const [courses, setCourses] = useState<CourseWithLessons[]>([]);
+                const [loading, setLoading] = useState(true);
+                const [addLessonTo, setAddLessonTo] = useState<CourseWithLessons | null>(null);
+
+  const load = async () => {
+                  setLoading(true);
+                try {
+      const data = await fetchTeacherCourses(teacherUid);
+                setCourses(data);
+    } catch {
+                  toast.error('Failed to load courses.');
+    } finally {
+                  setLoading(false);
+    }
+  };
+
+  useEffect(() => {load(); }, [teacherUid]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this course? This cannot be undone.')) return;
-    try {
-      await deleteCourse(id);
+                try {
+                  await deleteCourse(id);
       setCourses(prev => prev.filter(c => c.id !== id));
-      toast.success('Course deleted.');
+                toast.success('Course deleted.');
     } catch {
-      toast.error('Failed to delete course.');
+                  toast.error('Failed to delete course.');
     }
   };
 
-  if (loading) return (
-    <div className="flex justify-center items-center h-48 text-gray-400">
-      <div className="w-8 h-8 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
-    </div>
-  );
+                if (loading) return (
+                <div className="flex justify-center items-center h-48 text-gray-400">
+                  <div className="w-8 h-8 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+                </div>
+                );
 
-  if (courses.length === 0) return (
-    <div className="flex flex-col items-center justify-center h-64 text-gray-400 space-y-4">
-      <BookOpen size={48} className="opacity-20" />
-      <p>No courses yet. Upload your first course!</p>
-      <button
-        onClick={onUpload}
-        className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center gap-2 hover:bg-emerald-700 transition"
-      >
-        <Plus size={16} /> Upload Course
-      </button>
-    </div>
-  );
+                if (courses.length === 0) return (
+                <div className="flex flex-col items-center justify-center h-64 text-gray-400 space-y-4">
+                  <BookOpen size={48} className="opacity-20" />
+                  <p>No courses yet. Upload your first course!</p>
+                  <button
+                    onClick={onUpload}
+                    className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-semibold flex items-center gap-2 hover:bg-emerald-700 transition"
+                  >
+                    <Plus size={16} /> Upload Course
+                  </button>
+                </div>
+                );
 
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {courses.map((course) => (
-        <div key={course.id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md transition">
-          {course.thumbnail_url ? (
-            <img src={course.thumbnail_url} alt={course.title} className="w-full h-40 object-cover" />
-          ) : (
-            <div className="w-full h-40 bg-emerald-50 flex items-center justify-center">
-              <BookOpen size={40} className="text-emerald-300" />
-            </div>
-          )}
-          <div className="p-4">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-xs font-bold px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">
-                {course.subject}
-              </span>
-              <span className="text-xs text-gray-400">Class {course.class_level}</span>
-            </div>
-            <h4 className="font-bold text-gray-800 mb-1 line-clamp-1">{course.title}</h4>
-            <p className="text-xs text-gray-500 line-clamp-2 mb-3">{course.description}</p>
-            <div className="flex justify-between items-center pt-3 border-t border-gray-50">
-              <div className="flex items-center text-sm text-gray-600">
-                <PlayCircle size={14} className="mr-1 text-gray-400" />
-                {course.lessons?.length ?? 0} lesson(s)
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${course.is_free ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
-                  {course.is_free ? 'Free' : 'Paid'}
-                </span>
-                <button
-                  onClick={() => handleDelete(course.id)}
-                  className="text-red-400 hover:text-red-600 transition"
-                  title="Delete course"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+                return (
+                <>
+                  {/* Add Lesson Modal */}
+                  {addLessonTo && (
+                    <AddLessonModal
+                      course={addLessonTo}
+                      onClose={() => setAddLessonTo(null)}
+                      onAdded={load}
+                    />
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {courses.map((course) => (
+                      <div key={course.id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md transition">
+                        {course.thumbnail_url ? (
+                          <img src={course.thumbnail_url} alt={course.title} className="w-full h-40 object-cover" />
+                        ) : (
+                          <div className="w-full h-40 bg-emerald-50 flex items-center justify-center">
+                            <BookOpen size={40} className="text-emerald-300" />
+                          </div>
+                        )}
+                        <div className="p-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="text-xs font-bold px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">
+                              {course.subject}
+                            </span>
+                            <span className="text-xs text-gray-400">Class {course.class_level}</span>
+                          </div>
+                          <h4 className="font-bold text-gray-800 mb-1 line-clamp-1">{course.title}</h4>
+                          <p className="text-xs text-gray-500 line-clamp-2 mb-3">{course.description}</p>
+                          <div className="flex justify-between items-center pt-3 border-t border-gray-50">
+                            <div className="flex items-center text-sm text-gray-600">
+                              <PlayCircle size={14} className="mr-1 text-gray-400" />
+                              {course.lessons?.length ?? 0} lesson(s)
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {/* Add Lesson */}
+                              <button
+                                onClick={() => setAddLessonTo(course)}
+                                className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 flex items-center gap-1 border border-emerald-200 px-2 py-1 rounded-lg hover:bg-emerald-50 transition"
+                                title="Add lesson to this course"
+                              >
+                                <Plus size={12} /> Lesson
+                              </button>
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${course.is_free ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                                {course.is_free ? 'Free' : 'Paid'}
+                              </span>
+                              <button
+                                onClick={() => handleDelete(course.id)}
+                                className="text-red-400 hover:text-red-600 transition"
+                                title="Delete course"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+                );
 };
 
-// ─── Dashboard Overview ───────────────────────────────────────────────────────
+                // ─── Dashboard Overview ───────────────────────────────────────────────────────
 
-const DashboardOverview = ({ teacherUid }: { teacherUid: string }) => {
+                const DashboardOverview = ({teacherUid}: {teacherUid: string }) => {
   const [courses, setCourses] = useState<CourseWithLessons[]>([]);
 
   useEffect(() => {
-    fetchTeacherCourses(teacherUid).then(setCourses).catch(() => {});
+                  fetchTeacherCourses(teacherUid).then(setCourses).catch(() => { });
   }, [teacherUid]);
 
   const totalVideos = courses.reduce((acc, c) => acc + (c.lessons?.filter(l => l.type === 'video').length ?? 0), 0);
 
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Courses" value={courses.length.toString()} icon={Video} color="bg-emerald-500" />
-        <StatCard title="Total Lessons" value={courses.reduce((a, c) => a + (c.lessons?.length ?? 0), 0).toString()} icon={BookOpen} color="bg-blue-500" />
-        <StatCard title="Video Lessons" value={totalVideos.toString()} icon={TrendingUp} color="bg-amber-500" />
-        <StatCard title="Earnings" value="₹ 0" icon={IndianRupee} color="bg-purple-500" />
-      </div>
-      <Card>
-        <h3 className="font-semibold text-gray-800 mb-4">Recent Courses</h3>
-        {courses.length === 0 ? (
-          <p className="text-sm text-gray-400">No courses yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {courses.slice(0, 4).map(course => (
-              <div key={course.id} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
-                {course.thumbnail_url ? (
-                  <img src={course.thumbnail_url} className="w-10 h-10 rounded-lg object-cover" alt="" />
-                ) : (
-                  <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                    <BookOpen size={16} className="text-emerald-600" />
+                return (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <StatCard title="Total Courses" value={courses.length.toString()} icon={Video} color="bg-emerald-500" />
+                    <StatCard title="Total Lessons" value={courses.reduce((a, c) => a + (c.lessons?.length ?? 0), 0).toString()} icon={BookOpen} color="bg-blue-500" />
+                    <StatCard title="Video Lessons" value={totalVideos.toString()} icon={TrendingUp} color="bg-amber-500" />
+                    <StatCard title="Earnings" value="₹ 0" icon={IndianRupee} color="bg-purple-500" />
                   </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{course.title}</p>
-                  <p className="text-xs text-gray-500">{course.subject} · Class {course.class_level}</p>
+                  <Card>
+                    <h3 className="font-semibold text-gray-800 mb-4">Recent Courses</h3>
+                    {courses.length === 0 ? (
+                      <p className="text-sm text-gray-400">No courses yet.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {courses.slice(0, 4).map(course => (
+                          <div key={course.id} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
+                            {course.thumbnail_url ? (
+                              <img src={course.thumbnail_url} className="w-10 h-10 rounded-lg object-cover" alt="" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+                                <BookOpen size={16} className="text-emerald-600" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-800 truncate">{course.title}</p>
+                              <p className="text-xs text-gray-500">{course.subject} · Class {course.class_level}</p>
+                            </div>
+                            <span className="text-xs text-gray-400">{course.lessons?.length ?? 0} lessons</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
                 </div>
-                <span className="text-xs text-gray-400">{course.lessons?.length ?? 0} lessons</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-    </div>
-  );
+                );
 };
 
 // ─── Earnings ────────────────────────────────────────────────────────────────
 
 const EarningsPage = () => (
-  <div className="space-y-6">
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <Card className="bg-emerald-600 text-white border-none">
-        <p className="opacity-80 text-sm">Wallet Balance</p>
-        <h2 className="text-3xl font-bold mt-1">₹ 0.00</h2>
-        <button className="mt-4 bg-white/20 w-full py-2 rounded-lg text-sm font-medium hover:bg-white/30 transition">Withdraw to Bank</button>
-      </Card>
-      <StatCard title="Points Earned" value="0" icon={TrendingUp} color="bg-amber-500" />
-      <StatCard title="Ad Revenue" value="₹ 0" icon={IndianRupee} color="bg-blue-500" />
-    </div>
-    <Card>
-      <h3 className="font-semibold mb-4">How it works</h3>
-      <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-        <div className="flex items-start space-x-3">
-          <div className="w-6 h-6 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center text-xs font-bold shrink-0">1</div>
-          <p className="text-sm text-gray-600">Points are awarded based on engagement (views, completion rate, and quiz scores).</p>
-        </div>
-        <div className="flex items-start space-x-3">
-          <div className="w-6 h-6 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center text-xs font-bold shrink-0">2</div>
-          <p className="text-sm text-gray-600">Every 100 points converts to ₹10 for creators in rural distribution programs.</p>
-        </div>
-      </div>
-    </Card>
-  </div>
-);
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <Card className="bg-emerald-600 text-white border-none">
+                      <p className="opacity-80 text-sm">Wallet Balance</p>
+                      <h2 className="text-3xl font-bold mt-1">₹ 0.00</h2>
+                      <button className="mt-4 bg-white/20 w-full py-2 rounded-lg text-sm font-medium hover:bg-white/30 transition">Withdraw to Bank</button>
+                    </Card>
+                    <StatCard title="Points Earned" value="0" icon={TrendingUp} color="bg-amber-500" />
+                    <StatCard title="Ad Revenue" value="₹ 0" icon={IndianRupee} color="bg-blue-500" />
+                  </div>
+                  <Card>
+                    <h3 className="font-semibold mb-4">How it works</h3>
+                    <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center text-xs font-bold shrink-0">1</div>
+                        <p className="text-sm text-gray-600">Points are awarded based on engagement (views, completion rate, and quiz scores).</p>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center text-xs font-bold shrink-0">2</div>
+                        <p className="text-sm text-gray-600">Every 100 points converts to ₹10 for creators in rural distribution programs.</p>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+                );
 
-// ─── Main Dashboard ───────────────────────────────────────────────────────────
+                // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
-export default function VidyaPathDashboard() {
+                export default function VidyaPathDashboard() {
   const [activeSection, setActiveSection] = useState<Section>('Dashboard');
-  const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+                  const navigate = useNavigate();
+                  const {user, signOut} = useAuth();
 
-  const menuItems: { name: Section; icon: React.ElementType }[] = [
-    { name: 'Dashboard', icon: LayoutDashboard },
-    { name: 'My Courses', icon: Video },
-    { name: 'Upload Course', icon: UploadIcon },
-    { name: 'Earnings', icon: IndianRupee },
-  ];
+                  const menuItems: {name: Section; icon: React.ElementType }[] = [
+                  {name: 'Dashboard', icon: LayoutDashboard },
+                  {name: 'My Courses', icon: Video },
+                  {name: 'Upload Course', icon: UploadIcon },
+                  {name: 'Earnings', icon: IndianRupee },
+                  ];
 
   const handleTeacherLogout = async () => {
-    await signOut();
-    navigate('/login', { replace: true });
+                    await signOut();
+                  navigate('/login', {replace: true });
   };
 
   const renderContent = () => {
     switch (activeSection) {
       case 'Dashboard':
-        return <DashboardOverview teacherUid={user?.uid ?? ''} />;
-      case 'My Courses':
-        return <MyCourses teacherUid={user?.uid ?? ''} onUpload={() => setActiveSection('Upload Course')} />;
-      case 'Upload Course':
-        return (
-          <UploadCourseForm
-            teacherUid={user?.uid ?? ''}
-            onSuccess={() => setActiveSection('My Courses')}
-          />
-        );
-      case 'Earnings':
-        return <EarningsPage />;
+                  return <DashboardOverview teacherUid={user?.uid ?? ''} />;
+                  case 'My Courses':
+                  return <MyCourses teacherUid={user?.uid ?? ''} onUpload={() => setActiveSection('Upload Course')} />;
+                  case 'Upload Course':
+                  return (
+                  <UploadCourseForm
+                    teacherUid={user?.uid ?? ''}
+                    teacherName={user?.displayName ?? 'Teacher'}
+                    teacherPhotoUrl={user?.photoURL ?? null}
+                    onSuccess={() => setActiveSection('My Courses')}
+                  />
+                  );
+                  case 'Earnings':
+                  return <EarningsPage />;
     }
   };
 
-  return (
-    <div className="flex min-h-screen bg-gray-50 font-sans text-gray-900">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-100 flex-col hidden lg:flex">
-        <div className="p-6">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
-              <BookOpen className="text-white" size={20} />
-            </div>
-            <span className="text-xl font-bold tracking-tight text-emerald-900">VidyaPath</span>
-          </div>
-        </div>
+                  return (
+                  <div className="flex min-h-screen bg-gray-50 font-sans text-gray-900">
+                    {/* Sidebar */}
+                    <aside className="w-64 bg-white border-r border-gray-100 flex-col hidden lg:flex">
+                      <div className="p-6">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
+                            <BookOpen className="text-white" size={20} />
+                          </div>
+                          <span className="text-xl font-bold tracking-tight text-emerald-900">VidyaPath</span>
+                        </div>
+                      </div>
 
-        <nav className="flex-1 px-4 space-y-1">
-          {menuItems.map((item) => (
-            <button
-              key={item.name}
-              onClick={() => setActiveSection(item.name)}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-                activeSection === item.name
-                  ? 'bg-emerald-50 text-emerald-700 shadow-sm'
-                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
-              }`}
-            >
-              <item.icon size={20} />
-              <span className="font-medium text-sm">{item.name}</span>
-            </button>
-          ))}
+                      <nav className="flex-1 px-4 space-y-1">
+                        {menuItems.map((item) => (
+                          <button
+                            key={item.name}
+                            onClick={() => setActiveSection(item.name)}
+                            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeSection === item.name
+                                ? 'bg-emerald-50 text-emerald-700 shadow-sm'
+                                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                              }`}
+                          >
+                            <item.icon size={20} />
+                            <span className="font-medium text-sm">{item.name}</span>
+                          </button>
+                        ))}
 
-          <button
-            onClick={() => navigate('/teacher/profile')}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-          >
-            <User size={20} />
-            <span className="font-medium text-sm">Teacher Profile</span>
-          </button>
-        </nav>
+                        <button
+                          onClick={() => navigate('/teacher/profile')}
+                          className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                        >
+                          <User size={20} />
+                          <span className="font-medium text-sm">Teacher Profile</span>
+                        </button>
+                      </nav>
 
-        <div className="p-4 border-t border-gray-50">
-          <div className="bg-emerald-900 rounded-xl p-4 text-white">
-            <p className="text-xs opacity-70">Support rural education</p>
-            <p className="text-sm font-semibold mt-1 flex items-center">
-              Invite Teachers <ChevronRight size={14} className="ml-1" />
-            </p>
-          </div>
-        </div>
-      </aside>
+                      <div className="p-4 border-t border-gray-50">
+                        <div className="bg-emerald-900 rounded-xl p-4 text-white">
+                          <p className="text-xs opacity-70">Support rural education</p>
+                          <p className="text-sm font-semibold mt-1 flex items-center">
+                            Invite Teachers <ChevronRight size={14} className="ml-1" />
+                          </p>
+                        </div>
+                      </div>
+                    </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="h-16 bg-white border-b border-gray-100 px-8 flex items-center justify-between sticky top-0 z-10">
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input
-              type="text"
-              placeholder="Search content..."
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 border-none rounded-full text-sm focus:ring-2 focus:ring-emerald-500 transition-all"
-            />
-          </div>
+                    {/* Main Content */}
+                    <main className="flex-1 flex flex-col min-w-0">
+                      {/* Header */}
+                      <header className="h-16 bg-white border-b border-gray-100 px-8 flex items-center justify-between sticky top-0 z-10">
+                        <div className="relative w-64">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                          <input
+                            type="text"
+                            placeholder="Search content..."
+                            className="w-full pl-10 pr-4 py-2 bg-gray-50 border-none rounded-full text-sm focus:ring-2 focus:ring-emerald-500 transition-all"
+                          />
+                        </div>
 
-          <div className="flex items-center space-x-4">
-            <button className="p-2 text-gray-400 hover:bg-gray-50 rounded-full relative">
-              <Bell size={20} />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
-            </button>
-            <button
-              onClick={() => navigate('/teacher/profile')}
-              className="hidden sm:flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
-            >
-              <User size={16} /> Profile
-            </button>
-            <button
-              onClick={handleTeacherLogout}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
-            >
-              <LogOut size={16} /> Logout
-            </button>
-            <div className="flex items-center space-x-3 pl-4 border-l border-gray-100">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold text-gray-800">{user?.displayName ?? 'Teacher'}</p>
-                <p className="text-xs text-gray-400">Educator</p>
-              </div>
-              <div className="w-10 h-10 bg-emerald-100 rounded-full border-2 border-emerald-50 overflow-hidden">
-                <img
-                  src={user?.photoURL ?? `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid ?? 'teacher'}`}
-                  alt="avatar"
-                />
-              </div>
-            </div>
-          </div>
-        </header>
+                        <div className="flex items-center space-x-4">
+                          <button className="p-2 text-gray-400 hover:bg-gray-50 rounded-full relative">
+                            <Bell size={20} />
+                            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+                          </button>
+                          <button
+                            onClick={() => navigate('/teacher/profile')}
+                            className="hidden sm:flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+                          >
+                            <User size={16} /> Profile
+                          </button>
+                          <button
+                            onClick={handleTeacherLogout}
+                            className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                          >
+                            <LogOut size={16} /> Logout
+                          </button>
+                          <div className="flex items-center space-x-3 pl-4 border-l border-gray-100">
+                            <div className="text-right hidden sm:block">
+                              <p className="text-sm font-semibold text-gray-800">{user?.displayName ?? 'Teacher'}</p>
+                              <p className="text-xs text-gray-400">Educator</p>
+                            </div>
+                            <div className="w-10 h-10 bg-emerald-100 rounded-full border-2 border-emerald-50 overflow-hidden">
+                              <img
+                                src={user?.photoURL ?? `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.uid ?? 'teacher'}`}
+                                alt="avatar"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </header>
 
-        {/* Content Area */}
-        <div className="p-8 max-w-6xl mx-auto w-full">
-          <div className="flex justify-between items-center mb-8">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{activeSection}</h1>
-              <p className="text-sm text-gray-500">Welcome back to your teaching portal.</p>
-            </div>
-            {activeSection !== 'Upload Course' && (
-              <button
-                onClick={() => setActiveSection('Upload Course')}
-                className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 hover:bg-emerald-700 transition shadow-md shadow-emerald-100"
-              >
-                <Plus size={18} />
-                <span className="font-medium">Upload New</span>
-              </button>
-            )}
-          </div>
+                      {/* Content Area */}
+                      <div className="p-8 max-w-6xl mx-auto w-full">
+                        <div className="flex justify-between items-center mb-8">
+                          <div>
+                            <h1 className="text-2xl font-bold text-gray-900">{activeSection}</h1>
+                            <p className="text-sm text-gray-500">Welcome back to your teaching portal.</p>
+                          </div>
+                          {activeSection !== 'Upload Course' && (
+                            <button
+                              onClick={() => setActiveSection('Upload Course')}
+                              className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 hover:bg-emerald-700 transition shadow-md shadow-emerald-100"
+                            >
+                              <Plus size={18} />
+                              <span className="font-medium">Upload New</span>
+                            </button>
+                          )}
+                        </div>
 
-          {renderContent()}
-        </div>
-      </main>
-    </div>
-  );
+                        {renderContent()}
+                      </div>
+                    </main>
+                  </div>
+                  );
 }
